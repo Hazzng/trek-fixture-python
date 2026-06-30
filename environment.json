@@ -1,0 +1,9 @@
+{
+  "language": "python",
+  "python_version": "3.12",
+  "dependency_manager": "pip",
+  "install_command": "pip install -e .[dev]",
+  "test_command": "pytest -q",
+  "lint_command": null,
+  "notes": "Deterministic, dependency-free library (pytest is the only dev dependency). Seeds the future environment manifest (ADR-024)."
+}
