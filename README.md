@@ -24,3 +24,4 @@ pytest -q               # all tests pass
 ```
 
 Python 3.10+ (3.12 recommended).
+# prtest
