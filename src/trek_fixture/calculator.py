@@ -18,7 +18,7 @@ def subtract(a: float, b: float) -> float:
 
 
 def multiply(a: float, b: float) -> float:
-    """Return the product of two numbers."""
+    """Multiply two values."""
     return a * b
 
 
