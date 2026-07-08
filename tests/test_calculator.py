@@ -30,3 +30,4 @@ def test_divide_by_zero_raises() -> None:
 def test_power() -> None:
     assert power(2, 3) == 8
     assert power(5, 0) == 1
+    assert power(2, -2) == 0.25
