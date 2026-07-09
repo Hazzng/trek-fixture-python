@@ -1,8 +1,13 @@
 """Tests for the calculator module."""
 
-import pytest
+from __future__ import annotations
 
-from trek_fixture.calculator import add, divide, multiply, subtract
+from pathlib import Path
+
+import pytest
+from openpyxl import load_workbook
+
+from trek_fixture.calculator import add, divide, export_xlsx, multiply, subtract
 
 
 def test_add() -> None:
@@ -25,3 +30,17 @@ def test_divide() -> None:
 def test_divide_by_zero_raises() -> None:
     with pytest.raises(ZeroDivisionError):
         divide(1, 0)
+
+
+def test_export_xlsx_writes_real_workbook(tmp_path: Path) -> None:
+    destination = tmp_path / "results.xlsx"
+    results = [{"name": "alpha", "value": 1.5}, {"name": "beta", "value": 2}]
+
+    export_xlsx(destination, results)
+
+    workbook = load_workbook(destination)
+    sheet = workbook.active
+    assert sheet.title == "Results"
+    assert [cell.value for cell in sheet[1]] == ["name", "value"]
+    assert [cell.value for cell in sheet[2]] == ["alpha", 1.5]
+    assert [cell.value for cell in sheet[3]] == ["beta", 2]

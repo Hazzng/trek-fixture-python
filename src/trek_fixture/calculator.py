@@ -1,10 +1,11 @@
-"""A minimal, well-tested calculator module.
-
-Deterministic and dependency-free so the spike's sandbox can clone and run
-its tests reproducibly.
-"""
+"""A minimal, well-tested calculator module."""
 
 from __future__ import annotations
+
+from pathlib import Path
+from typing import Any, Iterable
+
+from openpyxl import Workbook  # type: ignore[import-untyped]
 
 
 def add(a: float, b: float) -> float:
@@ -31,3 +32,22 @@ def divide(a: float, b: float) -> float:
     if b == 0:
         raise ZeroDivisionError("division by zero")
     return a / b
+
+
+def export_xlsx(path: str | Path, results: Iterable[dict[str, Any]]) -> None:
+    """Write calculation results to a genuine .xlsx workbook."""
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Results"
+
+    rows = list(results)
+    if not rows:
+        workbook.save(Path(path))
+        return
+
+    headers = list(rows[0].keys())
+    sheet.append(headers)
+    for row in rows:
+        sheet.append([row.get(header) for header in headers])
+
+    workbook.save(Path(path))
