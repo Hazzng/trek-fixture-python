@@ -6,6 +6,10 @@ its tests reproducibly.
 
 from __future__ import annotations
 
+from pint import UnitRegistry
+
+_ureg: UnitRegistry = UnitRegistry()
+
 
 def add(a: float, b: float) -> float:
     """Return the sum of two numbers."""
@@ -31,3 +35,8 @@ def divide(a: float, b: float) -> float:
     if b == 0:
         raise ZeroDivisionError("division by zero")
     return a / b
+
+
+def convert_length(value: float, source_unit: str, target_unit: str) -> float:
+    """Convert a length value between compatible units using Pint."""
+    return (_ureg.Quantity(value, source_unit).to(target_unit)).magnitude
