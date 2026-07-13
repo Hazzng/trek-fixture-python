@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from decimal import Decimal
 from math import isfinite
 from os import PathLike
 from typing import Any
@@ -13,7 +14,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 def _xlsx_value(value: Any) -> Any:
     """Return a value that Excel can persist without losing non-finite floats."""
-    if isinstance(value, float) and not isfinite(value):
+    if isinstance(value, (float, Decimal)) and not isfinite(value):
         return str(value)
     return value
 
