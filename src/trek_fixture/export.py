@@ -33,10 +33,12 @@ def export_xlsx(
     worksheet = workbook.active
     if not isinstance(worksheet, Worksheet):
         raise RuntimeError("workbook has no active worksheet")
+    row_number = worksheet.max_row
     for expression, value in results:
         worksheet.append([expression, _xlsx_value(value)])
-        for cell in worksheet[worksheet.max_row]:
-            if isinstance(cell.value, str) and cell.value.startswith("="):
+        for cell in worksheet[row_number]:
+            if isinstance(cell.value, str) and cell.data_type in {"f", "e"}:
                 cell.data_type = "s"
+        row_number += 1
     workbook.save(path)
     workbook.close()
