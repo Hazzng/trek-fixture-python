@@ -6,6 +6,26 @@ its tests reproducibly.
 
 from __future__ import annotations
 
+from os import PathLike
+from typing import Any, Iterable
+
+from openpyxl import Workbook
+
+
+def export_xlsx(
+    path: str | PathLike[str], results: Iterable[tuple[Any, ...]]
+) -> None:
+    """Write calculation-result tuples to an OOXML workbook.
+
+    Each tuple is written as one worksheet row, preserving the input order.
+    """
+    workbook = Workbook()
+    worksheet = workbook.active
+    assert worksheet is not None
+    for result in results:
+        worksheet.append(result)
+    workbook.save(path)
+
 
 def add(a: float, b: float) -> float:
     """Return the sum of two numbers."""
