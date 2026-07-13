@@ -13,8 +13,10 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 
 def _xlsx_value(value: Any) -> Any:
-    """Return a value that Excel can persist without losing non-finite floats."""
-    if isinstance(value, (float, Decimal)) and not isfinite(value):
+    """Return a value that Excel can persist without losing non-finite numbers."""
+    if isinstance(value, float) and not isfinite(value):
+        return str(value)
+    if isinstance(value, Decimal) and not value.is_finite():
         return str(value)
     return value
 
