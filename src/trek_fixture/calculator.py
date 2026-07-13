@@ -1,14 +1,22 @@
-"""A minimal, well-tested calculator module.
-
-Deterministic and dependency-free so the spike's sandbox can clone and run
-its tests reproducibly.
-"""
+"""A minimal calculator with optional Pint quantity support."""
 
 from __future__ import annotations
 
+from pint import Quantity, UnitRegistry
 
-def add(a: float, b: float) -> float:
-    """Return the sum of two numbers."""
+
+ureg: UnitRegistry = UnitRegistry()
+"""The unit registry owned by this calculator module."""
+
+
+def convert(value: float, from_unit: str, to_unit: str) -> float:
+    """Convert a numeric value between units and return its magnitude."""
+    quantity = ureg.Quantity(value, from_unit)
+    return quantity.to(to_unit).magnitude
+
+
+def add(a: float | Quantity, b: float | Quantity) -> float | Quantity:
+    """Return the sum of two numbers or compatible Pint quantities."""
     return a + b
 
 
