@@ -32,5 +32,8 @@ def export_xlsx(
         raise RuntimeError("workbook has no active worksheet")
     for expression, value in results:
         worksheet.append([expression, _xlsx_value(value)])
+        for cell in worksheet[worksheet.max_row]:
+            if isinstance(cell.value, str) and cell.value.startswith("="):
+                cell.data_type = "s"
     workbook.save(path)
     workbook.close()
