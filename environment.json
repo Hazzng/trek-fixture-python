@@ -4,6 +4,18 @@
   "dependency_manager": "pip",
   "install_command": "pip install -e .[dev]",
   "test_command": "pytest -q",
-  "lint_command": null,
-  "notes": "Deterministic, dependency-free library (pytest is the only dev dependency). Seeds the future environment manifest (ADR-024)."
+  "lint_command": "ruff check src tests",
+  "runtime_dependencies": [
+    "fastapi",
+    "uvicorn",
+    "redis",
+    "psycopg[binary]"
+  ],
+  "service_environment": {
+    "REDIS_URL": "redis://localhost:6379/0",
+    "DATABASE_URL": "postgresql://localhost:5432/trek_fixture"
+  },
+  "live_test_command": "RUN_LIVE_SERVICE_TESTS=1 pytest -m integration -q",
+  "notes": "The HTTP API runs with Uvicorn. Redis caches calculation results and Postgres stores calculation history when REDIS_URL and DATABASE_URL are configured; the API and unit tests remain usable offline with in-process fallbacks."
+
 }
