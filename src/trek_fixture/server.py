@@ -192,8 +192,7 @@ def create_app(store: CalculationStore | None = None) -> FastAPI:
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    @application.post("/calculate")
-    def calculate(request: CalculationRequest) -> dict[str, float | bool]:
+    def calculate_request(request: CalculationRequest) -> dict[str, float | bool]:
         try:
             result, cached = calculation_store.calculate(request)
         except ValueError as error:
@@ -201,6 +200,16 @@ def create_app(store: CalculationStore | None = None) -> FastAPI:
         except ZeroDivisionError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         return {"result": result, "cached": cached}
+
+    @application.post("/calculate")
+    def calculate(request: CalculationRequest) -> dict[str, float | bool]:
+        return calculate_request(request)
+
+    @application.get("/calculate")
+    def calculate_from_query(
+        op: str, a: float, b: float
+    ) -> dict[str, float | bool]:
+        return calculate_request(CalculationRequest(operation=op, a=a, b=b))
 
     @application.get("/history")
     def history() -> list[dict[str, Any]]:
