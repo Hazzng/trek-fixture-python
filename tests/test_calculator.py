@@ -2,7 +2,7 @@
 
 import pytest
 
-from trek_fixture.calculator import add, divide, multiply, subtract
+from trek_fixture.calculator import add, divide, multiply, power, subtract
 
 
 def test_add() -> None:
@@ -16,6 +16,11 @@ def test_subtract() -> None:
 
 def test_multiply() -> None:
     assert multiply(4, 3) == 12
+
+
+def test_power() -> None:
+    assert power(2, 3) == 8
+    assert power(7, 0) == 1
 
 
 def test_divide() -> None:
