@@ -32,6 +32,10 @@ class CalculationRequest(BaseModel):
     b: float
 
 
+DEFAULT_REDIS_URL = "redis://localhost:6379/0"
+DEFAULT_DATABASE_URL = "postgresql://localhost:5432/trek_fixture"
+
+
 Operation = Callable[[float, float], float]
 OPERATIONS: dict[str, Operation] = {
     "add": add,
@@ -60,15 +64,18 @@ class CalculationStore:
     ) -> None:
         self.cache_client = cache_client
         if cache_client is None:
-            redis_url = os.getenv("REDIS_URL")
-            if redis_url:
-                self.cache_client = cast(
-                    CacheClient, Redis.from_url(redis_url, decode_responses=True)
-                )
+            redis_url = os.getenv("REDIS_URL") or DEFAULT_REDIS_URL
+            self.cache_client = cast(
+                CacheClient, Redis.from_url(redis_url, decode_responses=True)
+            )
 
-        database_url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL")
+        database_url = (
+            os.getenv("DATABASE_URL")
+            or os.getenv("POSTGRES_URL")
+            or DEFAULT_DATABASE_URL
+        )
         self.connection_factory = connection_factory
-        if self.connection_factory is None and database_url:
+        if self.connection_factory is None:
             self.connection_factory = lambda: psycopg.connect(
                 database_url, row_factory=dict_row
             )
