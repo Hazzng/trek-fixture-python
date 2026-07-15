@@ -2,6 +2,7 @@
 
 import pytest
 
+from trek_fixture import calculator
 from trek_fixture.calculator import add, divide, multiply, subtract
 
 
@@ -25,3 +26,13 @@ def test_divide() -> None:
 def test_divide_by_zero_raises() -> None:
     with pytest.raises(ZeroDivisionError):
         divide(1, 0)
+
+
+def test_power() -> None:
+    assert calculator.power(2, 3) == 8
+    assert calculator.power(9, 0.5) == 3
+
+
+def test_power_preserves_add_and_multiply_behavior() -> None:
+    assert add(2, 3) == 5
+    assert multiply(4, 3) == 12
