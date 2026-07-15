@@ -148,20 +148,16 @@ def test_service_startup_health(live_server: str) -> None:
     assert status == 200
     assert isinstance(payload, dict)
     assert payload["status"] == "ok"
-    assert payload["redis"] == "ok"
-    assert payload["postgres"] == "ok"
+    assert payload["redis"] is True
+    assert payload["postgres"] is True
 
 
 def test_calculation_uses_cache_and_persists_history(live_server: str) -> None:
     unique_value = int(time.time_ns() % 1_000_000_000)
-    calculation = {"operation": "power", "a": unique_value, "b": 2}
+    calculation_path = f"/calculate?op=power&a={unique_value}&b=2"
 
-    first_status, first = _request_json(
-        live_server, "/calculate", method="POST", payload=calculation
-    )
-    second_status, second = _request_json(
-        live_server, "/calculate", method="POST", payload=calculation
-    )
+    first_status, first = _request_json(live_server, calculation_path)
+    second_status, second = _request_json(live_server, calculation_path)
 
     assert first_status == second_status == 200
     assert isinstance(first, dict) and isinstance(second, dict)
@@ -172,26 +168,22 @@ def test_calculation_uses_cache_and_persists_history(live_server: str) -> None:
 
     history_status, history_payload = _request_json(live_server, "/history?limit=10")
     assert history_status == 200
-    assert isinstance(history_payload, dict)
-    history = history_payload["history"]
-    assert isinstance(history, list)
-    matching = [entry for entry in history if entry.get("result") == unique_value**2]
+    assert isinstance(history_payload, list)
+    matching = [entry for entry in history_payload if entry.get("result") == unique_value**2]
     assert matching
 
 
 def test_history_is_newest_first_and_honors_limit(live_server: str) -> None:
     unique_value = int(time.time_ns() % 1_000_000_000)
-    earlier = {"operation": "add", "a": unique_value, "b": 1}
-    later = {"operation": "add", "a": unique_value, "b": 2}
-    _request_json(live_server, "/calculate", method="POST", payload=earlier)
-    _request_json(live_server, "/calculate", method="POST", payload=later)
+    earlier_path = f"/calculate?op=add&a={unique_value}&b=1"
+    later_path = f"/calculate?op=add&a={unique_value}&b=2"
+    _request_json(live_server, earlier_path)
+    _request_json(live_server, later_path)
 
     status, payload = _request_json(live_server, "/history?limit=2")
 
     assert status == 200
-    assert isinstance(payload, dict)
-    history = payload["history"]
-    assert isinstance(history, list)
-    assert len(history) == 2
-    assert history[0]["result"] == unique_value + 2
-    assert history[1]["result"] == unique_value + 1
+    assert isinstance(payload, list)
+    assert len(payload) == 2
+    assert payload[0]["result"] == unique_value + 2
+    assert payload[1]["result"] == unique_value + 1
