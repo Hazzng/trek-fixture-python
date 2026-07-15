@@ -73,16 +73,16 @@ backends through the health endpoint:
 curl http://127.0.0.1:8000/health
 ```
 
-Submit a calculation (the first request is computed and cached, while a
-repeat request can be served from Redis):
+Submit a calculation with the operation and operands as query parameters (the
+first request is computed and cached, while a repeat request can be served
+from Redis):
 
 ```bash
-curl -X POST http://127.0.0.1:8000/calculate \\
-  -H 'Content-Type: application/json' \\
-  -d '{"operation":"power","a":2,"b":3}'
+curl 'http://127.0.0.1:8000/calculate?op=power&a=2&b=3'
 ```
 
-Read persisted calculations from Postgres:
+The health response includes boolean `redis` and `postgres` reachability
+fields. Read persisted calculations from Postgres as a top-level JSON list:
 
 ```bash
 curl 'http://127.0.0.1:8000/history?limit=10'

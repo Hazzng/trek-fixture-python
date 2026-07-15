@@ -22,6 +22,11 @@ def multiply(a: float, b: float) -> float:
     return a * b
 
 
+def power(a: float, b: float) -> float:
+    """Return ``a`` raised to the power ``b``."""
+    return a**b
+
+
 def divide(a: float, b: float) -> float:
     """Return the quotient of two numbers.
 
