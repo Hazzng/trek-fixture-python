@@ -2,6 +2,7 @@
 
 import pytest
 
+from trek_fixture import calculator
 from trek_fixture.calculator import add, divide, multiply, subtract
 
 
@@ -16,6 +17,11 @@ def test_subtract() -> None:
 
 def test_multiply() -> None:
     assert multiply(4, 3) == 12
+
+
+def test_power() -> None:
+    assert calculator.power(2, 10) == 1024
+    assert calculator.power(9, 0.5) == 3
 
 
 def test_divide() -> None:
