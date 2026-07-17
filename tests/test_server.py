@@ -143,7 +143,8 @@ def test_calculate_uses_same_tuple_identity_for_redis_cache() -> None:
     assert len(redis.get_keys) == 2
     assert redis.get_keys[0] == redis.get_keys[1]
     key = redis.get_keys[0]
-    assert all(part in str(key) for part in ("add", "4", "9"))
+    assert isinstance(key, tuple)
+    assert key == ("add", 4, 9)
     assert len(database.history) == 1
 
 
@@ -151,23 +152,25 @@ def test_startup_schema_is_idempotent_and_supports_history() -> None:
     server = load_server()
     database = RecordingConnection()
 
-    server.initialize_schema(database)
-    server.initialize_schema(database)
+    first_client = server.create_app(
+        redis_client=RecordingRedis(),
+        db_connection=database,
+    ).test_client()
+    second_client = server.create_app(
+        redis_client=RecordingRedis(),
+        db_connection=database,
+    ).test_client()
 
     ddl = " ".join(statement for statement, _ in database.statements).lower()
     assert ddl.count("create table if not exists calculations") == 2
     for column in ("operation", "operand_a", "operand_b", "result"):
         assert column in ddl
 
-    client = server.create_app(
-        redis_client=RecordingRedis(),
-        db_connection=database,
-    ).test_client()
-    response = client.post(
+    response = second_client.post(
         "/calculate", json={"operation": "power", "a": 2, "b": 4}
     )
     assert response.status_code == 200
-    assert client.get("/history").get_json()["history"]
+    assert first_client.get("/history").get_json()["history"]
 
 
 def test_runtime_defaults_and_dependencies_are_declared() -> None:
