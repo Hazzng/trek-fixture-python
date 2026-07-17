@@ -125,7 +125,7 @@ def _history(connection: Any, limit: int) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for row in rows:
         record = {
-            "operation": row[0],
+            "op": row[0],
             "a": row[1],
             "b": row[2],
             "result": row[3],
@@ -203,7 +203,11 @@ def create_app(
         payload = request.get_json(silent=True) or {}
         if request.method == "GET":
             payload = request.args
-        operation = payload.get("operation")
+        operation = payload.get("op" if request.method == "GET" else "operation")
+        # Keep accepting the POST spelling for GET callers during migration, but
+        # make the documented GET query parameter (`op`) the canonical one.
+        if request.method == "GET" and operation is None:
+            operation = payload.get("operation")
         a = payload.get("a")
         b = payload.get("b")
         if request.method == "GET":
@@ -220,24 +224,25 @@ def create_app(
         key = (operation, a, b)
         cached = _cached_response(_cache_get(cache, key))
         if cached is not None:
+            if database is None and live_metadata:
+                return jsonify(error="postgres is unavailable"), 503
             if live_metadata:
-                cached["cached"] = True
-                if database is None:
-                    return jsonify(error="postgres is unavailable"), 503
                 _persist_calculation(database, operation, a, b, float(cached["result"]))
-            return jsonify(cached)
+            return jsonify({"result": cached["result"], "cached": True})
 
         try:
             result = _dispatch(operation, a, b)
+            # Validate the calculator result before handing it to Flask, Redis,
+            # or PostgreSQL; complex values (for example power(-1, 0.5)) are
+            # not valid JSON API results.
+            json.dumps(result)
         except (ArithmeticError, ValueError, TypeError) as exc:
             return jsonify(error=str(exc)), 400
-        response = {"operation": operation, "a": a, "b": b, "result": result}
+        response = {"result": result, "cached": False}
         _cache_set(cache, key, json.dumps(response))
         if database is None:
             return jsonify(error="postgres is unavailable"), 503
         _persist_calculation(database, operation, a, b, result)
-        if live_metadata:
-            response["cached"] = False
         return jsonify(response)
 
     @app.get("/history")
@@ -249,7 +254,7 @@ def create_app(
             limit = max(1, min(int(raw_limit), 1000))
         except ValueError:
             return jsonify(error="limit must be an integer"), 400
-        return jsonify(history=_history(database, limit))
+        return jsonify(_history(database, limit))
 
     return app
 
