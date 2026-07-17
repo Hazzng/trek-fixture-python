@@ -35,7 +35,7 @@ manager or local installations; this project does **not** provide Docker Compose
 By default, the server connects to:
 
 - Redis at `redis://localhost:6379/0`
-- PostgreSQL at `postgresql://localhost:5432/postgres`
+- PostgreSQL at `postgresql://postgres:postgres@localhost:5432/postgres`
 
 The PostgreSQL database must already exist, and the configured user must be
 able to create the `calculations` table. The server creates that table on
@@ -46,7 +46,7 @@ the connection URLs before starting the server:
 
 ```bash
 export REDIS_URL='redis://localhost:6379/0'
-export DATABASE_URL='postgresql://localhost:5432/postgres'
+export DATABASE_URL='postgresql://postgres:postgres@localhost:5432/postgres'
 python -m trek_fixture.server
 ```
 

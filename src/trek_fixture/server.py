@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 from .calculator import add, multiply, power
 
 REDIS_DEFAULT = "redis://localhost:6379/0"
-DATABASE_DEFAULT = "postgresql://localhost:5432/postgres"
+DATABASE_DEFAULT = "postgresql://postgres:postgres@localhost:5432/postgres"
 _CACHE_NAMESPACE = uuid.uuid4().hex
 
 _SCHEMA = """
