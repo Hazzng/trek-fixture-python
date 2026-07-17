@@ -2,6 +2,7 @@
 
 import pytest
 
+from trek_fixture import calculator
 from trek_fixture.calculator import add, divide, multiply, subtract
 
 
@@ -25,3 +26,9 @@ def test_divide() -> None:
 def test_divide_by_zero_raises() -> None:
     with pytest.raises(ZeroDivisionError):
         divide(1, 0)
+
+
+def test_power_uses_python_exponentiation_semantics() -> None:
+    assert calculator.power(2, 10) == 1024
+    assert calculator.power(3, -2) == pytest.approx(1 / 9)
+    assert calculator.power(9, 0.5) == pytest.approx(3)
