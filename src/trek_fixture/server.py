@@ -42,12 +42,12 @@ def initialize_schema(connection: Any) -> None:
     connection.commit()
 
 
-def _dispatch(operation: str, a: float, b: float) -> float:
+def _dispatch(operation: str, a: int | float, b: int | float) -> Any:
     """Dispatch every supported operation to the canonical calculator module."""
 
     # Build this map at call time so applications can decorate or instrument
     # calculator functions without creating a second implementation here.
-    operations: dict[str, Callable[[float, float], float]] = {
+    operations: dict[str, Callable[[int | float, int | float], Any]] = {
         "add": calculator.add,
         "multiply": calculator.multiply,
         "power": calculator.power,
@@ -55,13 +55,13 @@ def _dispatch(operation: str, a: float, b: float) -> float:
     return operations[operation](a, b)
 
 
-def _portable_cache_key(key: tuple[str, float, float]) -> str:
+def _portable_cache_key(key: tuple[str, int | float, int | float]) -> str:
     """Encode a tuple key for Redis clients that only accept scalar keys."""
 
     return json.dumps(key, separators=(",", ":"))
 
 
-def _cache_get(client: Any, key: tuple[str, float, float]) -> Any:
+def _cache_get(client: Any, key: tuple[str, int | float, int | float]) -> Any:
     """Read a tuple-keyed value, adapting real Redis' scalar-key restriction."""
 
     try:
@@ -70,7 +70,7 @@ def _cache_get(client: Any, key: tuple[str, float, float]) -> Any:
         return client.get(_portable_cache_key(key))
 
 
-def _cache_set(client: Any, key: tuple[str, float, float], value: str) -> None:
+def _cache_set(client: Any, key: tuple[str, int | float, int | float], value: str) -> None:
     """Write a tuple-keyed value, adapting real Redis' scalar-key restriction."""
 
     try:
@@ -98,10 +98,25 @@ def _is_finite_number(value: Any) -> bool:
 
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return False
+    # Integers are exact and have no non-finite values; converting them to a
+    # float here would reject or round otherwise valid large operands.
+    if isinstance(value, int):
+        return True
+    return math.isfinite(value)
+
+
+def _parse_query_number(value: Any) -> Any:
+    """Parse query numbers without losing precision for integer operands."""
+
+    if not isinstance(value, str):
+        return value
     try:
-        return math.isfinite(value)
-    except (OverflowError, TypeError):
-        return False
+        return int(value)
+    except ValueError:
+        try:
+            return float(value)
+        except ValueError:
+            return value
 
 
 def _strict_json(value: Any) -> None:
@@ -115,7 +130,7 @@ def _persist_calculation(
     operation: str,
     a: float,
     b: float,
-    result: float,
+    result: int | float,
 ) -> None:
     with connection.cursor() as cursor:
         cursor.execute(
@@ -143,7 +158,7 @@ def _history(connection: Any, limit: int) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for row in rows:
         record = {
-            "operation": row[0],
+            "op": row[0],
             "a": row[1],
             "b": row[2],
             "result": row[3],
@@ -229,21 +244,21 @@ def create_app(
         a = payload.get("a")
         b = payload.get("b")
         if request.method == "GET":
-            try:
-                a = float(a) if a is not None else a
-                b = float(b) if b is not None else b
-            except (TypeError, ValueError):
-                pass
+            a = _parse_query_number(a)
+            b = _parse_query_number(b)
         if operation not in _OPERATION_NAMES or isinstance(a, bool) or isinstance(b, bool):
             return jsonify(error="operation, a, and b are required"), 400
         if not _is_finite_number(a) or not _is_finite_number(b):
             return jsonify(error="operation, a, and b are required"), 400
         operation_name = str(operation)
-        a_value = float(cast(int | float, a))
-        b_value = float(cast(int | float, b))
+        a_value = cast(int | float, a)
+        b_value = cast(int | float, b)
 
         key = (operation_name, a_value, b_value)
-        cached = _cached_response(_cache_get(cache, key))
+        try:
+            cached = _cached_response(_cache_get(cache, key))
+        except Exception:
+            return jsonify(error="redis is unavailable"), 503
         if cached is not None:
             try:
                 _strict_json(cached.get("result"))
@@ -252,10 +267,10 @@ def create_app(
             if database is None and live_metadata:
                 return jsonify(error="postgres is unavailable"), 503
             if live_metadata:
-                _persist_calculation(
-                    database, operation_name, a_value, b_value, float(cached["result"])
-                )
+                _persist_calculation(database, operation_name, a_value, b_value, cached["result"])
                 cached["cached"] = True
+            if request.method == "GET":
+                return jsonify(result=cached["result"], cached=True)
             return jsonify(cached)
 
         try:
@@ -274,10 +289,15 @@ def create_app(
         }
         if live_metadata:
             response["cached"] = False
-        _cache_set(cache, key, json.dumps(response, allow_nan=False))
+        try:
+            _cache_set(cache, key, json.dumps(response, allow_nan=False))
+        except Exception:
+            return jsonify(error="redis is unavailable"), 503
         if database is None:
             return jsonify(error="postgres is unavailable"), 503
         _persist_calculation(database, operation_name, a_value, b_value, result)
+        if request.method == "GET":
+            return jsonify(result=result, cached=False)
         return jsonify(response)
 
     @app.get("/history")
@@ -289,7 +309,7 @@ def create_app(
             limit = max(1, min(int(raw_limit), 1000))
         except ValueError:
             return jsonify(error="limit must be an integer"), 400
-        return jsonify(history=_history(database, limit))
+        return jsonify(_history(database, limit))
 
     return app
 
