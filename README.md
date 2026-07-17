@@ -20,7 +20,7 @@ environment.json    runtime manifest seed (ADR-024)
 
 ```bash
 pip install -e .[dev]   # pytest 8.3.4 is the only dependency
-pytest -q               # all tests pass
+pytest -q tests        # run the complete configured test suite
 ```
 
 Python 3.10+ (3.12 recommended).
