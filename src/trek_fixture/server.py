@@ -10,6 +10,7 @@ import json
 import math
 import os
 from collections.abc import Callable
+from decimal import Decimal
 from typing import Any, cast
 
 from flask import Flask, jsonify, request
@@ -26,19 +27,26 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS calculations (
     id BIGSERIAL PRIMARY KEY,
     operation TEXT NOT NULL,
-    operand_a DOUBLE PRECISION NOT NULL,
-    operand_b DOUBLE PRECISION NOT NULL,
-    result DOUBLE PRECISION NOT NULL,
+    operand_a NUMERIC NOT NULL,
+    operand_b NUMERIC NOT NULL,
+    result NUMERIC NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 )
+"""
+_MIGRATE_NUMERIC_SCHEMA = """
+ALTER TABLE calculations
+    ALTER COLUMN operand_a TYPE NUMERIC USING operand_a::NUMERIC,
+    ALTER COLUMN operand_b TYPE NUMERIC USING operand_b::NUMERIC,
+    ALTER COLUMN result TYPE NUMERIC USING result::NUMERIC
 """
 
 
 def initialize_schema(connection: Any) -> None:
-    """Create the history table if needed, making startup safe to repeat."""
+    """Create the history table and preserve exact numeric values on upgrades."""
 
     with connection.cursor() as cursor:
         cursor.execute(_SCHEMA)
+        cursor.execute(_MIGRATE_NUMERIC_SCHEMA)
     connection.commit()
 
 
@@ -125,11 +133,27 @@ def _strict_json(value: Any) -> None:
     json.dumps(value, allow_nan=False)
 
 
+def _numeric_parameter(value: int | float) -> Decimal:
+    """Adapt JSON numbers to PostgreSQL NUMERIC without integer narrowing."""
+
+    return Decimal(value) if isinstance(value, int) else Decimal(str(value))
+
+
+def _json_number(value: Any) -> Any:
+    """Convert PostgreSQL NUMERIC results to JSON's integer/float types."""
+
+    if not isinstance(value, Decimal):
+        return value
+    if value == value.to_integral_value():
+        return int(value)
+    return float(value)
+
+
 def _persist_calculation(
     connection: Any,
     operation: str,
-    a: float,
-    b: float,
+    a: int | float,
+    b: int | float,
     result: int | float,
 ) -> None:
     with connection.cursor() as cursor:
@@ -138,7 +162,12 @@ def _persist_calculation(
             INSERT INTO calculations (operation, operand_a, operand_b, result)
             VALUES (%s, %s, %s, %s)
             """,
-            (operation, a, b, result),
+            (
+                operation,
+                _numeric_parameter(a),
+                _numeric_parameter(b),
+                _numeric_parameter(result),
+            ),
         )
     connection.commit()
 
@@ -159,9 +188,9 @@ def _history(connection: Any, limit: int) -> list[dict[str, Any]]:
     for row in rows:
         record = {
             "op": row[0],
-            "a": row[1],
-            "b": row[2],
-            "result": row[3],
+            "a": _json_number(row[1]),
+            "b": _json_number(row[2]),
+            "result": _json_number(row[3]),
         }
         if len(row) > 4:
             at = row[4]
