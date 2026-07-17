@@ -5,5 +5,5 @@
   "install_command": "pip install -e .[dev]",
   "test_command": "pytest -q",
   "lint_command": null,
-  "notes": "Deterministic, dependency-free library (pytest is the only dev dependency). Seeds the future environment manifest (ADR-024)."
+  "notes": "Installable HTTP service. Start Redis and Postgres separately (without docker-compose), then configure REDIS_URL (default redis://localhost:6379) and DATABASE_URL (default postgresql://localhost:5432/postgres). Launch with python -m trek_fixture.server."
 }
