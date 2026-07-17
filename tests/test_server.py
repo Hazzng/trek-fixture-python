@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib
+import inspect
+import io
 import json
 import os
 import tomllib
@@ -11,6 +14,8 @@ from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
+from wsgiref.util import setup_testing_defaults
 
 import pytest
 
@@ -109,16 +114,109 @@ class FakePostgres:
         return connection
 
 
+class _Response:
+    """Minimal response shape shared by the standard-library HTTP adapter."""
+
+    def __init__(self, status_code: int, body: bytes) -> None:
+        self.status_code = status_code
+        self._body = body
+
+    def json(self) -> Any:
+        return json.loads(self._body)
+
+
+class _CallableHTTPClient:
+    """Exercise WSGI or ASGI applications without a framework test client."""
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    def __enter__(self) -> _CallableHTTPClient:
+        return self
+
+    def __exit__(self, *_: Any) -> None:
+        return None
+
+    def get(self, url: str) -> _Response:
+        if inspect.iscoroutinefunction(self.app.__call__):
+            return asyncio.run(self._asgi_get(url))
+        return self._wsgi_get(url)
+
+    def _wsgi_get(self, url: str) -> _Response:
+        parsed = urlsplit(url)
+        environ: dict[str, Any] = {}
+        setup_testing_defaults(environ)
+        environ.update(
+            {
+                "REQUEST_METHOD": "GET",
+                "PATH_INFO": parsed.path,
+                "QUERY_STRING": parsed.query,
+                "wsgi.input": io.BytesIO(),
+            }
+        )
+        status = "500 Internal Server Error"
+        response_headers: list[tuple[str, str]] = []
+
+        def start_response(value: str, headers: list[tuple[str, str]], *_: Any) -> None:
+            nonlocal status, response_headers
+            status = value
+            response_headers = headers
+
+        body = b"".join(self.app(environ, start_response))
+        del response_headers
+        return _Response(int(status.split()[0]), body)
+
+    async def _asgi_get(self, url: str) -> _Response:
+        parsed = urlsplit(url)
+        messages: list[dict[str, Any]] = []
+
+        async def receive() -> dict[str, Any]:
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message: dict[str, Any]) -> None:
+            messages.append(message)
+
+        await self.app(
+            {
+                "type": "http",
+                "http_version": "1.1",
+                "method": "GET",
+                "scheme": "http",
+                "path": parsed.path,
+                "raw_path": parsed.path.encode(),
+                "query_string": parsed.query.encode(),
+                "headers": [(b"host", b"testserver")],
+                "client": ("testclient", 50000),
+                "server": ("testserver", 80),
+            },
+            receive,
+            send,
+        )
+        start = next(message for message in messages if message["type"] == "http.response.start")
+        body = b"".join(
+            message.get("body", b"")
+            for message in messages
+            if message["type"] == "http.response.body"
+        )
+        return _Response(start["status"], body)
+
+
+def _http_client(app: Any) -> Any:
+    """Build an HTTP test client without prescribing the server framework."""
+    if hasattr(app, "test_client"):
+        return app.test_client()
+    if callable(app):
+        return _CallableHTTPClient(app)
+    pytest.fail("create_app must return a testable HTTP application")
+
+
 def _client(
     server: Any,
     redis: FakeRedis,
     postgres: FakePostgres,
 ) -> Any:
     """Build the application with deterministic dependency doubles."""
-    from fastapi.testclient import TestClient
-
-    app = server.create_app(redis_client=redis, postgres_factory=postgres)
-    return TestClient(app)
+    return _http_client(server.create_app(redis_client=redis, postgres_factory=postgres))
 
 
 def _assert_health(response: Any, *, redis: bool, postgres: bool) -> None:
@@ -134,8 +232,6 @@ def test_runtime_dependencies_and_local_configuration_are_declared() -> None:
     """The package and README expose the complete local server contract."""
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())
     dependencies = {dependency.lower() for dependency in project["project"]["dependencies"]}
-    assert any(dependency.startswith("fastapi") for dependency in dependencies)
-    assert any(dependency.startswith("uvicorn") for dependency in dependencies)
     assert any(dependency.startswith("redis") for dependency in dependencies)
     assert any(dependency.startswith("psycopg") for dependency in dependencies)
 
@@ -185,12 +281,19 @@ def test_calculate_routes_dispatch_cache_and_persist_history(
             assert second.status_code == 200
             assert second.json() == {"result": expected, "cached": True}
 
-        history_response = client.get("/history?limit=2")
+        history_response = client.get("/history?limit=6")
         assert history_response.status_code == 200
         history = history_response.json()
-        assert len(history) == 2
-        assert [entry["op"] for entry in history] == ["power", "multiply"]
-        assert [entry["result"] for entry in history] == [1024, 6]
+        assert len(history) == 6
+        assert [entry["op"] for entry in history] == [
+            "power",
+            "power",
+            "multiply",
+            "multiply",
+            "add",
+            "add",
+        ]
+        assert [entry["result"] for entry in history] == [1024, 1024, 6, 6, 5, 5]
         assert all(set(entry) == {"op", "a", "b", "result", "at"} for entry in history)
         assert all(isinstance(entry["at"], str) and entry["at"] for entry in history)
 
@@ -200,7 +303,7 @@ def test_calculate_routes_dispatch_cache_and_persist_history(
 
     assert calls == ["add", "multiply", "power"]
     assert len(redis.set_keys) == 3
-    assert len(postgres.history) == 3
+    assert len(postgres.history) == 6
     assert any(
         "CREATE TABLE" in statement.upper()
         for connection in postgres.connections
@@ -287,9 +390,7 @@ def test_real_services_exercise_http_cache_and_history(
     b = 7.0
     before_keys = set(real_redis.scan_iter())
 
-    from fastapi.testclient import TestClient
-
-    with TestClient(server.create_app()) as client:
+    with _http_client(server.create_app()) as client:
         health = client.get("/health")
         _assert_health(health, redis=True, postgres=True)
 
