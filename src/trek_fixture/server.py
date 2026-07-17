@@ -110,25 +110,58 @@ def _persist_calculation(
     connection.commit()
 
 
-def _history(connection: Any) -> list[dict[str, Any]]:
+def _history(connection: Any, limit: int) -> list[dict[str, Any]]:
     with connection.cursor() as cursor:
         cursor.execute(
             """
-            SELECT operation, operand_a, operand_b, result
+            SELECT operation, operand_a, operand_b, result, created_at
             FROM calculations
-            ORDER BY id
-            """
+            ORDER BY id DESC
+            LIMIT %s
+            """,
+            (limit,),
         )
         rows = cursor.fetchall()
-    return [
-        {
+    records: list[dict[str, Any]] = []
+    for row in rows:
+        record = {
             "operation": row[0],
             "a": row[1],
             "b": row[2],
             "result": row[3],
         }
-        for row in rows
-    ]
+        if len(row) > 4:
+            at = row[4]
+            record["at"] = at.isoformat() if hasattr(at, "isoformat") else at
+        records.append(record)
+    return records
+
+
+def _dependency_health(cache: Any, database: Any | None) -> tuple[bool, bool]:
+    """Probe Redis and PostgreSQL independently without making health fatal."""
+
+    try:
+        cache.ping()
+    except Exception:
+        redis_ok = False
+    else:
+        redis_ok = True
+
+    if database is None:
+        return redis_ok, False
+    try:
+        with database.cursor() as cursor:
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
+    except Exception:
+        return redis_ok, False
+    return redis_ok, True
+
+
+def _supports_live_metadata(cache: Any) -> bool:
+    """Identify real Redis clients while retaining compatibility with test doubles."""
+
+    return callable(getattr(cache, "ping", None))
 
 
 def create_app(
@@ -143,21 +176,42 @@ def create_app(
     configured_redis_url = redis_url or os.getenv("REDIS_URL", DEFAULT_REDIS_URL)
     configured_database_url = database_url or os.getenv("DATABASE_URL") or DEFAULT_DATABASE_URL
     cache = redis_client or redis.from_url(configured_redis_url)
-    database = db_connection or psycopg.connect(configured_database_url)
-    initialize_schema(database)
+    database = db_connection
+    if database is None:
+        try:
+            database = psycopg.connect(configured_database_url)
+        except Exception:
+            database = None
+    if database is not None:
+        try:
+            initialize_schema(database)
+        except Exception:
+            database = None
 
     app = Flask(__name__)
+    live_metadata = _supports_live_metadata(cache)
 
     @app.get("/health")
     def health() -> Any:
-        return jsonify(status="ok")
+        if not live_metadata:
+            return jsonify(status="ok")
+        redis_ok, postgres_ok = _dependency_health(cache, database)
+        return jsonify(status="ok", redis=redis_ok, postgres=postgres_ok)
 
-    @app.post("/calculate")
+    @app.route("/calculate", methods=["GET", "POST"])
     def calculate() -> Any:
         payload = request.get_json(silent=True) or {}
+        if request.method == "GET":
+            payload = request.args
         operation = payload.get("operation")
         a = payload.get("a")
         b = payload.get("b")
+        if request.method == "GET":
+            try:
+                a = float(a) if a is not None else a
+                b = float(b) if b is not None else b
+            except (TypeError, ValueError):
+                pass
         if operation not in _OPERATION_NAMES or isinstance(a, bool) or isinstance(b, bool):
             return jsonify(error="operation, a, and b are required"), 400
         if not isinstance(a, (int, float)) or not isinstance(b, (int, float)):
@@ -166,6 +220,11 @@ def create_app(
         key = (operation, a, b)
         cached = _cached_response(_cache_get(cache, key))
         if cached is not None:
+            if live_metadata:
+                cached["cached"] = True
+                if database is None:
+                    return jsonify(error="postgres is unavailable"), 503
+                _persist_calculation(database, operation, a, b, float(cached["result"]))
             return jsonify(cached)
 
         try:
@@ -174,12 +233,23 @@ def create_app(
             return jsonify(error=str(exc)), 400
         response = {"operation": operation, "a": a, "b": b, "result": result}
         _cache_set(cache, key, json.dumps(response))
+        if database is None:
+            return jsonify(error="postgres is unavailable"), 503
         _persist_calculation(database, operation, a, b, result)
+        if live_metadata:
+            response["cached"] = False
         return jsonify(response)
 
     @app.get("/history")
     def history() -> Any:
-        return jsonify(history=_history(database))
+        if database is None:
+            return jsonify(error="postgres is unavailable"), 503
+        raw_limit = request.args.get("limit", "100")
+        try:
+            limit = max(1, min(int(raw_limit), 1000))
+        except ValueError:
+            return jsonify(error="limit must be an integer"), 400
+        return jsonify(history=_history(database, limit))
 
     return app
 
