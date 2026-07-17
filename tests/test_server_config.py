@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import importlib
 import json
+import socket
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from urllib.request import urlopen
 
 import pytest
@@ -47,6 +48,18 @@ def _get_json(base_url: str, path: str, **query: object) -> tuple[int, dict[str,
         return response.status, json.load(response)
 
 
+def _can_connect(url: str, default_port: int) -> bool:
+    parsed = urlsplit(url)
+    if parsed.hostname is None:
+        return False
+    port = parsed.port or default_port
+    try:
+        with socket.create_connection((parsed.hostname, port), timeout=0.5):
+            return True
+    except (OSError, ValueError):
+        return False
+
+
 def test_server_uses_exact_default_dependency_urls(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("REDIS_URL", raising=False)
     monkeypatch.delenv("DATABASE_URL", raising=False)
@@ -68,6 +81,13 @@ def test_server_reads_dependency_urls_from_environment(monkeypatch: pytest.Monke
 
 
 def test_health_endpoint_reports_both_dependencies() -> None:
+    server = _load_server()
+    if not (
+        _can_connect(server.REDIS_URL, 6379)
+        and _can_connect(server.DATABASE_URL, 5432)
+    ):
+        pytest.skip("requires reachable Redis and Postgres endpoints")
+
     with _running_server() as base_url:
         status, body = _get_json(base_url, "/health")
 
@@ -84,14 +104,19 @@ def test_calculate_endpoint_routes_operations_and_returns_cache_flag() -> None:
         power_status, power_body = _get_json(
             base_url, "/calculate", op="power", a=2, b=10
         )
+        repeat_status, repeat_body = _get_json(
+            base_url, "/calculate", op="add", a=2, b=3
+        )
 
-    assert add_status == multiply_status == power_status == 200
+    assert add_status == multiply_status == power_status == repeat_status == 200
     assert add_body["result"] == 5
     assert multiply_body["result"] == 42
     assert power_body["result"] == 1024
     assert isinstance(add_body["cached"], bool)
     assert isinstance(multiply_body["cached"], bool)
     assert isinstance(power_body["cached"], bool)
+    assert repeat_body["result"] == add_body["result"]
+    assert repeat_body["cached"] is True
 
 
 def test_readme_documents_server_invocation_and_dependency_defaults() -> None:
