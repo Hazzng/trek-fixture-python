@@ -7,9 +7,10 @@ Redis is used as a result cache and PostgreSQL stores the calculation history.
 from __future__ import annotations
 
 import json
+import math
 import os
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 from flask import Flask, jsonify, request
 import psycopg
@@ -92,6 +93,23 @@ def _cached_response(value: Any) -> dict[str, Any] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+def _is_finite_number(value: Any) -> bool:
+    """Return whether a request operand is representable as JSON data."""
+
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except (OverflowError, TypeError):
+        return False
+
+
+def _strict_json(value: Any) -> None:
+    """Reject values such as NaN and Infinity that JSON does not define."""
+
+    json.dumps(value, allow_nan=False)
+
+
 def _persist_calculation(
     connection: Any,
     operation: str,
@@ -125,7 +143,7 @@ def _history(connection: Any, limit: int) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for row in rows:
         record = {
-            "op": row[0],
+            "operation": row[0],
             "a": row[1],
             "b": row[2],
             "result": row[3],
@@ -218,31 +236,48 @@ def create_app(
                 pass
         if operation not in _OPERATION_NAMES or isinstance(a, bool) or isinstance(b, bool):
             return jsonify(error="operation, a, and b are required"), 400
-        if not isinstance(a, (int, float)) or not isinstance(b, (int, float)):
+        if not _is_finite_number(a) or not _is_finite_number(b):
             return jsonify(error="operation, a, and b are required"), 400
+        operation_name = str(operation)
+        a_value = float(cast(int | float, a))
+        b_value = float(cast(int | float, b))
 
-        key = (operation, a, b)
+        key = (operation_name, a_value, b_value)
         cached = _cached_response(_cache_get(cache, key))
         if cached is not None:
+            try:
+                _strict_json(cached.get("result"))
+            except (ValueError, TypeError):
+                return jsonify(error="cached result is not valid JSON"), 502
             if database is None and live_metadata:
                 return jsonify(error="postgres is unavailable"), 503
             if live_metadata:
-                _persist_calculation(database, operation, a, b, float(cached["result"]))
-            return jsonify({"result": cached["result"], "cached": True})
+                _persist_calculation(
+                    database, operation_name, a_value, b_value, float(cached["result"])
+                )
+                cached["cached"] = True
+            return jsonify(cached)
 
         try:
-            result = _dispatch(operation, a, b)
+            result = _dispatch(operation_name, a_value, b_value)
             # Validate the calculator result before handing it to Flask, Redis,
-            # or PostgreSQL; complex values (for example power(-1, 0.5)) are
-            # not valid JSON API results.
-            json.dumps(result)
+            # or PostgreSQL; complex values and non-finite numbers are not valid
+            # JSON API results.
+            _strict_json(result)
         except (ArithmeticError, ValueError, TypeError) as exc:
             return jsonify(error=str(exc)), 400
-        response = {"result": result, "cached": False}
-        _cache_set(cache, key, json.dumps(response))
+        response = {
+            "operation": operation_name,
+            "a": a_value,
+            "b": b_value,
+            "result": result,
+        }
+        if live_metadata:
+            response["cached"] = False
+        _cache_set(cache, key, json.dumps(response, allow_nan=False))
         if database is None:
             return jsonify(error="postgres is unavailable"), 503
-        _persist_calculation(database, operation, a, b, result)
+        _persist_calculation(database, operation_name, a_value, b_value, result)
         return jsonify(response)
 
     @app.get("/history")
@@ -254,7 +289,7 @@ def create_app(
             limit = max(1, min(int(raw_limit), 1000))
         except ValueError:
             return jsonify(error="limit must be an integer"), 400
-        return jsonify(_history(database, limit))
+        return jsonify(history=_history(database, limit))
 
     return app
 
