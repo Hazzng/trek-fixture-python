@@ -96,6 +96,13 @@ def test_health_endpoint_reports_both_dependencies() -> None:
 
 
 def test_calculate_endpoint_routes_operations_and_returns_cache_flag() -> None:
+    server = _load_server()
+    if not (
+        _can_connect(server.REDIS_URL, 6379)
+        and _can_connect(server.DATABASE_URL, 5432)
+    ):
+        pytest.skip("requires reachable Redis and Postgres endpoints")
+
     with _running_server() as base_url:
         add_status, add_body = _get_json(base_url, "/calculate", op="add", a=2, b=3)
         multiply_status, multiply_body = _get_json(
