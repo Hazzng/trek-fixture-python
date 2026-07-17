@@ -72,12 +72,17 @@ def test_server_uses_exact_default_dependency_urls(monkeypatch: pytest.MonkeyPat
 def test_server_reads_dependency_urls_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     redis_url = "redis://cache.example:6380/2"
     database_url = "postgresql://db.example:5433/app"
-    monkeypatch.setenv("REDIS_URL", redis_url)
-    monkeypatch.setenv("DATABASE_URL", database_url)
-    server = importlib.reload(_load_server())
+    with monkeypatch.context() as environment:
+        environment.setenv("REDIS_URL", redis_url)
+        environment.setenv("DATABASE_URL", database_url)
+        server = importlib.reload(_load_server())
 
-    assert server.REDIS_URL == redis_url
-    assert server.DATABASE_URL == database_url
+        assert server.REDIS_URL == redis_url
+        assert server.DATABASE_URL == database_url
+
+    # The live endpoint tests must observe the real process configuration,
+    # rather than the unreachable values used to verify environment overrides.
+    importlib.reload(server)
 
 
 def test_health_endpoint_reports_both_dependencies() -> None:
