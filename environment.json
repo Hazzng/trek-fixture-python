@@ -12,11 +12,11 @@
   ],
   "service_prerequisites": [
     "Redis running externally (default: redis://localhost:6379/0)",
-    "PostgreSQL running externally (default: postgresql://postgres:postgres@localhost:5432/postgres)"
+    "PostgreSQL running externally (default: postgresql://localhost:5432/postgres)"
   ],
   "environment_variables": {
     "REDIS_URL": "redis://localhost:6379/0",
-    "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/postgres",
+    "DATABASE_URL": "postgresql://localhost:5432/postgres",
     "HOST": "127.0.0.1",
     "PORT": "8000"
   },

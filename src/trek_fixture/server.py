@@ -8,13 +8,15 @@ import os
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from decimal import Decimal
+import uuid
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from .calculator import add, multiply, power
 
 REDIS_DEFAULT = "redis://localhost:6379/0"
-DATABASE_DEFAULT = "postgresql://postgres:postgres@localhost:5432/postgres"
+DATABASE_DEFAULT = "postgresql://localhost:5432/postgres"
+_CACHE_NAMESPACE = uuid.uuid4().hex
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS calculations (
@@ -65,10 +67,15 @@ def _redis_reachable() -> bool:
         return False
 
 
+def _ensure_schema(connection: Any) -> None:
+    connection.execute(_SCHEMA)
+
+
 def _postgres_reachable() -> bool:
     try:
-        with _postgres_connection():
-            return True
+        with _postgres_connection() as connection:
+            _ensure_schema(connection)
+        return True
     except Exception:
         return False
 
@@ -81,17 +88,17 @@ def _initialize_schema() -> None:
     """
     try:
         with _postgres_connection() as connection:
-            connection.execute(_SCHEMA)
+            _ensure_schema(connection)
     except Exception:
         return
 
 
-def _cache_key(operation: str, a: float, b: float) -> str:
+def _cache_key(operation: str, a: int | float, b: int | float) -> str:
     payload = json.dumps([operation, a, b], separators=(",", ":"), allow_nan=False)
-    return "trek-fixture:calculation:" + payload
+    return f"trek-fixture:{_CACHE_NAMESPACE}:calculation:" + payload
 
 
-def _calculate(operation: str, a: float, b: float) -> tuple[float, bool]:
+def _calculate(operation: str, a: int | float, b: int | float) -> tuple[int | float, bool]:
     functions = {"add": add, "multiply": multiply, "power": power}
     try:
         calculate = functions[operation]
@@ -99,22 +106,24 @@ def _calculate(operation: str, a: float, b: float) -> tuple[float, bool]:
         raise ValueError(f"unsupported operation: {operation}") from exc
 
     key = _cache_key(operation, a, b)
-    result: float | None = None
+    result: int | float | None = None
     cached = False
     try:
         client = _redis_connection()
         try:
             cached_value = client.get(key)
             if cached_value is not None:
-                result = float(cached_value)
-                cached = True
+                parsed_value = json.loads(cached_value)
+                if isinstance(parsed_value, (int, float)) and not isinstance(parsed_value, bool):
+                    result = parsed_value
+                    cached = True
         finally:
             client.close()
     except Exception:
         result = None
 
     if result is None:
-        result = float(calculate(a, b))
+        result = calculate(a, b)
         try:
             client = _redis_connection()
             try:
@@ -128,9 +137,12 @@ def _calculate(operation: str, a: float, b: float) -> tuple[float, bool]:
     return result, cached
 
 
-def _record_calculation(operation: str, a: float, b: float, result: float) -> None:
+def _record_calculation(
+    operation: str, a: int | float, b: int | float, result: int | float
+) -> None:
     try:
         with _postgres_connection() as connection:
+            _ensure_schema(connection)
             connection.execute(
                 """
                 INSERT INTO calculations (op, a, b, result)
@@ -153,6 +165,7 @@ def _json_number(value: Any) -> int | float:
 def _history(limit: int) -> list[dict[str, Any]]:
     try:
         with _postgres_connection() as connection:
+            _ensure_schema(connection)
             rows = connection.execute(
                 """
                 SELECT op, a, b, result, at
@@ -177,11 +190,15 @@ def _history(limit: int) -> list[dict[str, Any]]:
     ]
 
 
-def _query_number(query: dict[str, list[str]], name: str) -> float:
+def _query_number(query: dict[str, list[str]], name: str) -> int | float:
     values = query.get(name)
     if not values or not values[0]:
         raise ValueError(f"missing parameter: {name}")
-    return float(values[0])
+    raw_value = values[0]
+    try:
+        return int(raw_value)
+    except ValueError:
+        return float(raw_value)
 
 
 class CalculatorHandler(BaseHTTPRequestHandler):
