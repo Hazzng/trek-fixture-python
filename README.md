@@ -19,7 +19,7 @@ environment.json    runtime manifest seed (ADR-024)
 ## Setup & test (deterministic)
 
 ```bash
-pip install -e .[dev]   # pytest 8.3.4 is the only dependency
+pip install -e .[dev]   # installs openpyxl at runtime and pytest 8.3.4 for development
 pytest -q               # all tests pass
 ```
 
