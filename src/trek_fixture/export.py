@@ -21,5 +21,7 @@ def export_xlsx(path: str | PathLike[str], results: Iterable[Result]) -> None:
     workbook = Workbook()
     worksheet = cast(Worksheet, workbook.active)
     for result in results:
-        worksheet.append(list(result))
+        # openpyxl omits a row made entirely of ``None`` values; empty strings
+        # create cells that load back as ``None`` while preserving the row.
+        worksheet.append(["" if value is None else value for value in result])
     workbook.save(path)

@@ -1,10 +1,12 @@
 """Tests for XLSX result export."""
 
 from pathlib import Path
-import tomllib
+from typing import cast
 
 import pytest
+import tomllib
 from openpyxl import load_workbook
+from openpyxl.worksheet.worksheet import Worksheet
 from packaging.requirements import Requirement
 
 
@@ -35,7 +37,22 @@ def test_export_xlsx_round_trip(tmp_path: Path) -> None:
     assert output_path.is_file()
     workbook = load_workbook(output_path)
     try:
-        worksheet = workbook.active
+        worksheet = cast(Worksheet, workbook.active)
         assert list(worksheet.iter_rows(values_only=True)) == results
+    finally:
+        workbook.close()
+
+
+def test_export_xlsx_preserves_all_blank_result_row(tmp_path: Path) -> None:
+    """A result with two blank cells remains one blank row after loading."""
+    from trek_fixture.export import export_xlsx
+
+    output_path = tmp_path / "blank-result.xlsx"
+    export_xlsx(output_path, [(None, None)])
+
+    workbook = load_workbook(output_path)
+    try:
+        worksheet = cast(Worksheet, workbook.active)
+        assert list(worksheet.iter_rows(values_only=True)) == [(None, None)]
     finally:
         workbook.close()
