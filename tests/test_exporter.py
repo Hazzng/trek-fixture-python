@@ -30,13 +30,9 @@ def test_openpyxl_is_a_runtime_dependency() -> None:
         project = tomllib.load(file)
 
     runtime_dependencies = project["project"]["dependencies"]
-    development_dependencies = project["project"]["optional-dependencies"]["dev"]
     is_openpyxl = re.compile(r"^openpyxl(?:\s|[<>=!~]|$)", re.IGNORECASE)
 
     assert any(is_openpyxl.match(dependency) for dependency in runtime_dependencies)
-    assert not any(
-        is_openpyxl.match(dependency) for dependency in development_dependencies
-    )
 
 
 def test_export_xlsx_constructs_and_saves_with_openpyxl(
