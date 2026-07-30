@@ -44,24 +44,24 @@ def test_export_xlsx_constructs_and_saves_with_openpyxl(
     export_xlsx = getattr(exporter, "export_xlsx", None)
     assert callable(export_xlsx)
 
-    real_workbook = openpyxl.Workbook
+    real_workbook: Any = openpyxl.Workbook
+    real_init = real_workbook.__init__
+    real_save = real_workbook.save
     constructed_workbooks: list[Any] = []
     saved_paths: list[Path] = []
 
-    def workbook_factory(*args: Any, **kwargs: Any) -> Any:
-        workbook = real_workbook(*args, **kwargs)
+    def workbook_init(workbook: Any, *args: Any, **kwargs: Any) -> None:
+        real_init(workbook, *args, **kwargs)
         constructed_workbooks.append(workbook)
-        original_save = workbook.save
 
-        def save(path: str | Path, *save_args: Any, **save_kwargs: Any) -> Any:
-            saved_paths.append(Path(path))
-            return original_save(path, *save_args, **save_kwargs)
+    def workbook_save(
+        workbook: Any, path: str | Path, *args: Any, **kwargs: Any
+    ) -> Any:
+        saved_paths.append(Path(path))
+        return real_save(workbook, path, *args, **kwargs)
 
-        workbook.save = save
-        return workbook
-
-    monkeypatch.setattr(openpyxl, "Workbook", workbook_factory)
-    monkeypatch.setattr(exporter, "Workbook", workbook_factory, raising=False)
+    monkeypatch.setattr(real_workbook, "__init__", workbook_init)
+    monkeypatch.setattr(real_workbook, "save", workbook_save)
 
     output_path = tmp_path / "results.xlsx"
     export_xlsx(output_path, [("2+2", 4)])
