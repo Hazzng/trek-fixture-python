@@ -2,8 +2,24 @@
   "language": "python",
   "python_version": "3.12",
   "dependency_manager": "pip",
-  "install_command": "pip install -e .[dev]",
-  "test_command": "pytest -q",
+  "install_command": "python -m pip install -e '.[dev]'",
+  "test_command": "python -m pytest -q",
+  "run_command": "python -m trek_fixture.server",
   "lint_command": null,
-  "notes": "Deterministic, dependency-free library (pytest is the only dev dependency). Seeds the future environment manifest (ADR-024)."
+  "runtime_dependencies": [
+    "redis>=5.0",
+    "psycopg[binary]>=3.1"
+  ],
+  "service_prerequisites": [
+    "Redis running externally (default: redis://localhost:6379/0)",
+    "PostgreSQL running externally (default: postgresql://postgres:postgres@localhost:5432/postgres)"
+  ],
+  "environment_variables": {
+    "REDIS_URL": "redis://localhost:6379/0",
+    "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/postgres",
+    "HOST": "127.0.0.1",
+    "PORT": "8000"
+  },
+  "docker_compose": false,
+  "notes": "Service-backed calculator fixture: Redis caches results and PostgreSQL stores calculation history. Redis and PostgreSQL must be started outside this repository; the server creates its PostgreSQL history table on startup when reachable. The dev extra pins pytest==8.3.4."
 }
